@@ -13,8 +13,6 @@ package org.eclipse.datatools.enablement.oda.xml.util;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -22,12 +20,13 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.xml.parsers.SAXParserFactory;
+
 import org.eclipse.datatools.connectivity.oda.OdaException;
 import org.xml.sax.Attributes;
-import org.xml.sax.ContentHandler;
-import org.xml.sax.ErrorHandler;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
+import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.DefaultHandler;
 
 /**
@@ -38,7 +37,6 @@ import org.xml.sax.helpers.DefaultHandler;
 public class SaxParser extends DefaultHandler implements Runnable
 {
 	private static Logger logger = Logger.getLogger( SaxParser.class.getName( ) );
-	private static final String SAX_PARSER ="org.apache.xerces.parsers.SAXParser";  //$NON-NLS-1$
 
     private InputStream inputStream;
     private String encoding;
@@ -97,30 +95,18 @@ public class SaxParser extends DefaultHandler implements Runnable
 	{
 		try
 		{
-			//We should use reflect to create SAXParser and execute its methods. For in 
-			//apache Xerces SAXParser it will create other necessary objects using class loader.
-			//And sometimes the classloader it uses is not the one which load itself,especially
-			//in case that several version of Xerces coexist in the environment, say, IBM java 5.0
-			//has include Xerces in its jre library, which takes higher priority to be loaded, take 
-			//Tomcat's classloading mechanism into consideration, than eclipse OSGi classloader.We 
-			//use reflect here to ensure the class and its object can be successfully created.Please 
-			//note that all the item created here using reflecting are loaded by classloader of higher
-			//priority. In case of IBM java 5.0, the Xerces in its lib is loaded.Meanwhile, all the
-			//other Xerces classes referenced here are loaded by OSGi classloader.
-			//
-			//This implementation cannot resolve all the conflict but at least it works for the problem
-			//we are meeting now.
-			Object xmlReader = createXMLReader( );
-	
-			setContentHandler( xmlReader );
-			
-			setErrorHandler( xmlReader );
-			
-			parse( xmlReader );
+			SAXParserFactory factory = SAXParserFactory.newInstance( );
+			factory.setNamespaceAware( true );
+			XMLReader xmlReader = factory.newSAXParser( ).getXMLReader( );
+			xmlReader.setContentHandler( this );
+			xmlReader.setErrorHandler( this );
+			InputSource source = new InputSource( inputStream );
+			source.setEncoding( encoding );
+			xmlReader.parse( source );
 		}
 		catch ( Exception e )
 		{
-			if ( !(e.getCause( ) instanceof ThreadStopException) )
+			if ( !(e instanceof ThreadStopException) )
 			{
 				logger.log( Level.WARNING, "Exceptions occur during xml parsing", e );
 				exceptions.add( e );
@@ -149,124 +135,6 @@ public class SaxParser extends DefaultHandler implements Runnable
 		return !exceptions.isEmpty( );
 	}
 
-	/**
-	 * 
-	 * @param xmlReader
-	 * @throws NoSuchMethodException
-	 * @throws IllegalAccessException
-	 * @throws InvocationTargetException
-	 */
-	private void parse( Object xmlReader ) throws NoSuchMethodException, IllegalAccessException, InvocationTargetException
-	{
-		Method parse = this.getMethod( "parse",//$NON-NLS-1$
-				xmlReader.getClass( ),
-				new Class[]{
-					InputSource.class
-				} );
-		InputSource source = new InputSource(inputStream);
-		source.setEncoding( encoding );
-		parse.invoke( xmlReader, new Object[]{
-			source
-		} );
-	}
-
-	/**
-	 * 
-	 * @param xmlReader
-	 * @throws NoSuchMethodException
-	 * @throws IllegalAccessException
-	 * @throws InvocationTargetException
-	 */
-	private void setErrorHandler( Object xmlReader ) throws NoSuchMethodException, IllegalAccessException, InvocationTargetException
-	{
-		Method setErrorHandler = this.getMethod( "setErrorHandler",//$NON-NLS-1$
-				xmlReader.getClass( ),
-				new Class[]{
-					ErrorHandler.class
-				} );
-		this.invokeMethod( setErrorHandler, xmlReader, new Object[]{this} );
-	}
-
-	/**
-	 * 
-	 * @param xmlReader
-	 * @throws NoSuchMethodException
-	 * @throws IllegalAccessException
-	 * @throws InvocationTargetException
-	 */
-	private void setContentHandler( Object xmlReader ) throws NoSuchMethodException, IllegalAccessException, InvocationTargetException
-	{
-		Method setContentHandler = this.getMethod( "setContentHandler",//$NON-NLS-1$
-				xmlReader.getClass( ),
-				new Class[]{
-					ContentHandler.class
-				} );
-		
-		this.invokeMethod( setContentHandler, xmlReader, new Object[]{
-				this
-			} );
-	}
-
-	/**
-	 * 
-	 * @return
-	 * @throws InstantiationException
-	 * @throws IllegalAccessException
-	 * @throws ClassNotFoundException
-	 */
-	private Object createXMLReader( ) throws InstantiationException,
-			IllegalAccessException, ClassNotFoundException
-	{
-		try
-		{
-			Object xmlReader = Thread.currentThread( )
-					.getContextClassLoader( )
-					.loadClass( SAX_PARSER )
-					.newInstance( );
-			return xmlReader;
-		}
-		catch ( ClassNotFoundException e )
-		{
-			return Class.forName( SAX_PARSER )
-					.newInstance( );
-		}
-
-	}
-
-	/**
-	 * Return a method using reflect.
-	 * 
-	 * @param methodName
-	 * @param targetClass
-	 * @param argument
-	 * @return
-	 * @throws SecurityException
-	 * @throws NoSuchMethodException
-	 */
-	private Method getMethod(String methodName, Class targetClass, Class[] argument) throws SecurityException, NoSuchMethodException
-	{
-		assert methodName != null;
-		assert targetClass != null;
-		assert argument != null;
-		
-		return targetClass.getMethod( methodName, argument );
-	}
-	
-	/**
-	 * Invoke a method.
-	 * 
-	 * @param method
-	 * @param targetObject
-	 * @param argument
-	 * @throws IllegalArgumentException
-	 * @throws IllegalAccessException
-	 * @throws InvocationTargetException
-	 */
-	private void invokeMethod( Method method, Object targetObject, Object[] argument ) throws IllegalArgumentException, IllegalAccessException, InvocationTargetException
-	{
-		method.invoke( targetObject, argument );
-	}
-	
 	/*
 	 *  (non-Javadoc)
 	 * @see org.xml.sax.ContentHandler#startDocument()

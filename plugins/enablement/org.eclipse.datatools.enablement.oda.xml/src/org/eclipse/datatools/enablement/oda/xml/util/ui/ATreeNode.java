@@ -13,18 +13,10 @@ package org.eclipse.datatools.enablement.oda.xml.util.ui;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 
-import org.apache.xerces.impl.xs.XSAttributeGroupDecl;
-import org.apache.xerces.impl.xs.XSAttributeUseImpl;
-import org.apache.xerces.impl.xs.XSComplexTypeDecl;
-import org.apache.xerces.impl.xs.XSElementDecl;
-import org.apache.xerces.impl.xs.XSModelGroupImpl;
-import org.apache.xerces.impl.xs.XSParticleDecl;
-import org.apache.xerces.xs.XSAttributeDeclaration;
-import org.apache.xerces.xs.XSObjectList;
 import org.eclipse.datatools.connectivity.oda.OdaException;
 import org.eclipse.datatools.enablement.oda.xml.impl.DataTypes;
+import org.w3c.dom.Element;
 
 /**
  * The instance of this class is used as tree node of the xml schema tree that
@@ -110,8 +102,9 @@ public class ATreeNode
 
 	}
 
-	private XSElementDecl element;
-	private XSAttributeDeclaration attr;
+	private Element declaration;
+	private XsdSchema schema;
+	private boolean childrenPopulated;
 
 	/**
 	 * 
@@ -124,32 +117,22 @@ public class ATreeNode
 
 	/**
 	 * 
-	 * @param element
+	 * @param element an XML Schema element declaration in a namespace-aware DOM
 	 * @throws OdaException
 	 */
-	public ATreeNode( XSElementDecl element ) throws OdaException
+	public ATreeNode( Element element ) throws OdaException
 	{
-		this();
-		this.element = element;
-		this.value = element.getName( );
-		this.type = ELEMENT_TYPE;
-
-		if ( element.getTypeDefinition( ).getName( ) != null )
-			this.dataType = getDataType( element.getTypeDefinition( ).getName( ) );
-		else
-			this.dataType = getDataType( element.getName( ) );
-
+		this( new XsdSchema( element.getOwnerDocument( ) ), element, ELEMENT_TYPE );
 	}
 
-	private ATreeNode( XSAttributeDeclaration attrDeclaration )
-			throws OdaException
+	ATreeNode( XsdSchema schema, Element declaration, int type ) throws OdaException
 	{
 		this();
-		this.attr = attrDeclaration;
-		this.value = this.attr.getName( );
-		this.type = ATTRIBUTE_TYPE;
-		this.dataType = getDataType( attrDeclaration.getTypeDefinition( )
-				.getName( ) );
+		this.schema = schema;
+		this.declaration = schema.resolveDeclaration( declaration );
+		this.value = this.declaration.getAttribute( "name" ); //$NON-NLS-1$
+		this.type = type;
+		this.dataType = getDataType( schema.getTypeName( this.declaration ) );
 	}
 
 	/**
@@ -170,86 +153,17 @@ public class ATreeNode
 	 */
 	public Object[] getChildren( ) throws OdaException
 	{
-		if ( this.children.size( ) != 0 )
+		if ( this.children.size( ) != 0 || childrenPopulated )
 			return this.children.toArray( );
-		List result = new ArrayList( );
-		if ( this.attr != null )
-			return result.toArray( );
-
-		if ( this.element != null )
+		if ( declaration != null && type == ELEMENT_TYPE )
 		{
-			if ( this.element.getTypeDefinition( ) instanceof XSComplexTypeDecl )
+			for ( ATreeNode node : schema.getChildren( declaration ) )
 			{
-				XSModelGroupImpl group = null;
-
-				if ( ( (XSComplexTypeDecl) this.element.getTypeDefinition( ) ).getParticle( ) != null )
-				{
-					group = (XSModelGroupImpl) ( (XSComplexTypeDecl) this.element.getTypeDefinition( ) ).getParticle( )
-							.getTerm( );
-
-					populateModelGroup( result, group );
-				}
-				if ( ( (XSComplexTypeDecl) this.element.getTypeDefinition( ) ).getAttrGrp( ) != null )
-				{
-					XSAttributeGroupDecl gp1 = ( (XSComplexTypeDecl) this.element.getTypeDefinition( ) ).getAttrGrp( );
-					XSObjectList list = gp1.getAttributeUses( );
-
-					for ( int i = 0; i < list.getLength( ); i++ )
-					{
-						XSAttributeUseImpl impl = (XSAttributeUseImpl) list.item( i );
-						ATreeNode node = new ATreeNode( impl.getAttrDeclaration( ) );
-						addNodeToChild( result, node );
-					}
-				}
+				node.setParent( this );
 			}
 		}
-		for ( int i = 0; i < result.size(); i++ ) 
-		{
-			( ( ATreeNode ) result.get( i ) ).setParent( this );
-		}
-		return result.toArray( );
-	}
-
-	/**
-	 * 
-	 * @param result
-	 * @param group
-	 * @throws OdaException
-	 */
-	private void populateModelGroup( List result, XSModelGroupImpl group )
-			throws OdaException
-	{
-		for ( int i = 0; i < group.getParticles( ).getLength( ); i++ )
-		{
-			ATreeNode node = null;
-			Object o = ( (XSParticleDecl) group.getParticles( ).item( i ) ).getTerm( );
-			if ( o instanceof XSModelGroupImpl )
-			{
-				populateModelGroup( result, (XSModelGroupImpl) o );
-
-			}
-			else if ( o instanceof XSElementDecl )
-			{
-				node = new ATreeNode( (XSElementDecl) o );
-				addNodeToChild( result, node );
-			}
-		}
-	}
-
-	/**
-	 * 
-	 * @param result
-	 * @param node
-	 */
-	private void addNodeToChild( List result, ATreeNode node )
-	{
-		for ( int i = 0; i < result.size( ); i++ )
-		{
-			if ( ( (ATreeNode) result.get( i ) ).getValue( )
-					.equals( node.getValue( ) ) )
-				return;
-		}
-		result.add( node );
+		childrenPopulated = true;
+		return children.toArray( );
 	}
 
 	/**

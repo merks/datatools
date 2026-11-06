@@ -11,23 +11,13 @@
 
 package org.eclipse.datatools.enablement.oda.xml.util.ui;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-import javax.xml.parsers.DocumentBuilderFactory;
-
-import org.apache.xerces.dom.DOMInputImpl;
-import org.apache.xerces.impl.xs.XMLSchemaLoader;
-import org.apache.xerces.impl.xs.XSElementDecl;
-import org.apache.xerces.xs.XSConstants;
-import org.apache.xerces.xs.XSLoader;
-import org.apache.xerces.xs.XSModel;
-import org.apache.xerces.xs.XSNamedMap;
 import org.eclipse.datatools.connectivity.oda.OdaException;
 import org.eclipse.datatools.enablement.oda.xml.i18n.Messages;
 import org.eclipse.datatools.enablement.oda.xml.util.ISaxParserConsumer;
@@ -36,7 +26,7 @@ import org.eclipse.datatools.enablement.oda.xml.util.ResourceLocatorUtil;
 import org.eclipse.datatools.enablement.oda.xml.util.SaxParser;
 import org.eclipse.datatools.enablement.oda.xml.util.XMLPath;
 import org.eclipse.datatools.enablement.oda.xml.util.XMLSourceFromPath;
-import org.w3c.dom.ls.LSInput;
+import org.w3c.dom.Element;
 
 
 /**
@@ -412,14 +402,14 @@ final class XSDFileSchemaTreePopulator
 		ATreeNode xmlRoot = new XMLFileSchemaTreePopulator( 2 ).getSchemaTree( xmlFileName, 
 				xmlEncoding, resourceIdentifiers );
 
-		XSNamedMap map = loadSchema( schemafileName, xmlEncoding, resourceIdentifiers );
+		XsdSchema schema = loadSchema( schemafileName, xmlEncoding, resourceIdentifiers );
+		List<Element> elements = schema.getElements( );
 
 		ATreeNode xsdRoot = new ATreeNode( );
 		xsdRoot.setValue( ROOT_LITERAL );
-		for ( int i = 0; i < map.getLength( ); i++ )
+		for ( Element element : elements )
 		{
-			XSElementDecl element = (XSElementDecl) map.item( i );
-			ATreeNode node = new ATreeNode( element );
+			ATreeNode node = new ATreeNode( schema, element, ATreeNode.ELEMENT_TYPE );
 
 			xsdRoot.addChild( node );
 
@@ -428,7 +418,7 @@ final class XSDFileSchemaTreePopulator
 			// tree, if this no element that matches the xml root elememt,
 			// then
 			// the tree is populated based on the xsd file structure
-			if ( xmlRoot != null
+			if ( xmlRoot != null && xmlRoot.getChildren( ).length > 0
 					&& node.getValue( )
 							.equals( ( (ATreeNode) xmlRoot.getChildren( )[0] ).getValue( ) ) )
 			{
@@ -450,64 +440,14 @@ final class XSDFileSchemaTreePopulator
 	 * @throws URISyntaxException
 	 * @throws OdaException
 	 */
-	private static XSNamedMap loadSchema( String schemafileName,
+	private static XsdSchema loadSchema( String schemafileName,
 			String xmlEncoding, Object resourceIdentifiers ) throws MalformedURLException,
 			URISyntaxException, OdaException
 	{
-		if( xmlEncoding == null || xmlEncoding.length( ) == 0 )
-		{
-			return loadSchema( schemafileName, resourceIdentifiers );
-		}
-		else
-		{
-			return loadSchemaWithEncoding( schemafileName, xmlEncoding, resourceIdentifiers );
-		}
-	}
-	
-	private static XSNamedMap loadSchema( String schemafileName, Object resourceIdentifiers) throws MalformedURLException,
-			URISyntaxException, OdaException
-	{
-		DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance( );
-		factory.setNamespaceAware( true );
-		XSLoader xsLoader = new XMLSchemaLoader( );
-		XSModel xsModel = null;
-		
 		URI uri = ResourceLocatorUtil.resolvePath( resourceIdentifiers, schemafileName );
 		if ( uri == null )
 			throw new OdaException( Messages.getString( "ui.xsdFileNotFound" ) + schemafileName); //$NON-NLS-1$
-		
-		xsModel = xsLoader.loadURI( uri.toString( ) );
-		if ( xsModel == null )
-			throw new OdaException( Messages.getString( "ui.invalidXSDFile" ) ); //$NON-NLS-1$
-
-		return xsModel.getComponents( XSConstants.ELEMENT_DECLARATION );
-	}
-	
-	private static XSNamedMap loadSchemaWithEncoding( String schemafileName,
-			String xmlEncoding, Object resourceIdentifiers ) throws MalformedURLException,
-			URISyntaxException, OdaException
-	{
-		DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance( );
-		factory.setNamespaceAware( true );
-				
-		XSLoader xsLoader = new XMLSchemaLoader( );
-		LSInput input = new DOMInputImpl( );
-		try
-		{
-			input.setCharacterStream( new BufferedReader( new InputStreamReader( ResourceLocatorUtil.getInputStream( resourceIdentifiers,
-					schemafileName ) ) ) );
-		}
-		catch ( OdaException e )
-		{
-			throw new OdaException( Messages.getString( "ui.invalidXSDFile" ) + e.getLocalizedMessage( ));	//$NON-NLS-1$
-		}
-		
-		input.setEncoding( xmlEncoding );
-		XSModel xsModel = xsLoader.load( input );
-		if ( xsModel == null )
-			throw new OdaException( Messages.getString( "ui.invalidXSDFile" ) );	//$NON-NLS-1$
-
-		return xsModel.getComponents( XSConstants.ELEMENT_DECLARATION );
+		return XsdSchema.load( uri, xmlEncoding );
 	}
 	
 	/**
@@ -523,17 +463,14 @@ final class XSDFileSchemaTreePopulator
 			throws OdaException, MalformedURLException, URISyntaxException
 	{		
 
-		XSNamedMap map = loadSchema( xsdFileName, xmlEncoding, resourceIdentifiers );
+		XsdSchema schema = loadSchema( xsdFileName, xmlEncoding, resourceIdentifiers );
 
 		ATreeNode root = new ATreeNode( );
 		root.setValue( ROOT_LITERAL );
-		for ( int i = 0; i < map.getLength( ); i++ )
+		for ( Element element : schema.getElements( ) )
 		{
-			XSElementDecl element = (XSElementDecl) map.item( i );
-			ATreeNode node = new ATreeNode( element );
-			node.setValue( element.getName( ) );
-			node.setType( ATreeNode.ELEMENT_TYPE );
-			node.setDataType( element.getName( ) );
+			ATreeNode node = new ATreeNode( schema, element, ATreeNode.ELEMENT_TYPE );
+			node.setDataType( element.getAttribute( "name" ) ); //$NON-NLS-1$
 			root.addChild( node );
 		}
 
