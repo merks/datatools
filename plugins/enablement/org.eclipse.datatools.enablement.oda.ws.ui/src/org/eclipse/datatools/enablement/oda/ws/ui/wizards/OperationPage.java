@@ -11,15 +11,10 @@
 
 package org.eclipse.datatools.enablement.oda.ws.ui.wizards;
 
+import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-
-import javax.wsdl.Definition;
-import javax.wsdl.Operation;
-import javax.wsdl.Port;
-import javax.wsdl.Service;
-import javax.wsdl.WSDLException;
 
 import org.eclipse.datatools.connectivity.oda.OdaException;
 import org.eclipse.datatools.connectivity.oda.design.DataSetDesign;
@@ -31,6 +26,10 @@ import org.eclipse.datatools.enablement.oda.ws.ui.util.IHelpConstants;
 import org.eclipse.datatools.enablement.oda.ws.ui.util.WSConsole;
 import org.eclipse.datatools.enablement.oda.ws.ui.util.WSUIUtil;
 import org.eclipse.datatools.enablement.oda.ws.util.WSDLAdvisor;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.Definition;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.Operation;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.Port;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.Service;
 import org.eclipse.datatools.enablement.oda.ws.util.WSUtil;
 import org.eclipse.jface.dialogs.IMessageProvider;
 import org.eclipse.jface.dialogs.MessageDialog;
@@ -304,7 +303,7 @@ public class OperationPage extends DataSetWizardPage
 		{
 			definition = WSDLAdvisor.getDefinition( wsdlURI );
 		}
-		catch ( WSDLException e )
+		catch ( IOException e )
 		{
 			this.setErrorMessage( e.getMessage( ) );
 		}

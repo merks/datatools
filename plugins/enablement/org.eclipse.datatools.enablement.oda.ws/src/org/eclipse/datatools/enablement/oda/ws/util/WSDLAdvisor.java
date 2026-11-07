@@ -11,43 +11,29 @@
 
 package org.eclipse.datatools.enablement.oda.ws.util;
 
+import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.wsdl.Binding;
-import javax.wsdl.BindingInput;
-import javax.wsdl.BindingOperation;
-import javax.wsdl.Definition;
-import javax.wsdl.Operation;
-import javax.wsdl.Part;
-import javax.wsdl.Port;
-import javax.wsdl.Service;
-import javax.wsdl.Types;
-import javax.wsdl.WSDLException;
-import javax.wsdl.extensions.http.HTTPAddress;
-import javax.wsdl.extensions.soap.SOAPAddress;
-import javax.wsdl.extensions.soap.SOAPBinding;
-import javax.wsdl.extensions.soap.SOAPBody;
-import javax.wsdl.extensions.soap.SOAPHeader;
-import javax.wsdl.extensions.soap.SOAPOperation;
-import javax.wsdl.factory.WSDLFactory;
-import javax.wsdl.xml.WSDLReader;
 import javax.xml.namespace.QName;
 
 import org.eclipse.datatools.connectivity.oda.OdaException;
 import org.eclipse.datatools.enablement.oda.ws.i18n.Messages;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.Binding;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.BindingOperation;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.Definition;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.Operation;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.Part;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.Port;
+import org.eclipse.datatools.enablement.oda.ws.util.WSDLModel.Service;
 import org.w3c.dom.Element;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
-
-import com.ibm.wsdl.extensions.schema.SchemaImpl;
-import com.ibm.wsdl.extensions.schema.SchemaImportImpl;
 
 /**
  * A utility class that handles all wsdl-involved operations
@@ -82,7 +68,7 @@ public class WSDLAdvisor
 	public static final String SIMPLE_TYPE = "simpleType"; //$NON-NLS-1$
 	public static final String COMPLEX_TYPE = "complexType"; //$NON-NLS-1$
 	public static final String CHOICE = "choice"; //$NON-NLS-1$
-	private static Map definitionMap = new HashMap( );
+	private static final Map<String, Definition> definitionMap = new HashMap<String, Definition>( );
 	private static List primitiveDataTypeList;
 
 	/**
@@ -92,16 +78,12 @@ public class WSDLAdvisor
 	 * @param wsdlURI
 	 * @return
 	 */
-	public static Definition getDefinition( String wsdlURI ) throws WSDLException
+	public static synchronized Definition getDefinition( String wsdlURI ) throws IOException
 	{
 		if ( definitionMap.containsKey( wsdlURI ) )
-			return (Definition) definitionMap.get( wsdlURI );
+			return definitionMap.get( wsdlURI );
 
-		Definition definition;
-		WSDLReader reader = WSDLFactory.newInstance( ).newWSDLReader( );
-		reader.setFeature( "javax.wsdl.verbose", true ); //$NON-NLS-1$
-		reader.setFeature( "javax.wsdl.importDocuments", true ); //$NON-NLS-1$
-		definition = reader.readWSDL( null, wsdlURI );
+		Definition definition = WSDLModel.read( wsdlURI );
 
 		definitionMap.put( wsdlURI, definition );
 
@@ -114,9 +96,9 @@ public class WSDLAdvisor
 		{
 			return getDefinition( wsdlURI );
 		}
-		catch ( WSDLException e )
+		catch ( IOException e )
 		{
-			return null;
+			throw new IllegalStateException( e.getMessage( ), e );
 		}
 	}
 	/**
@@ -143,23 +125,13 @@ public class WSDLAdvisor
 			return null;
 
 		Port port = service.getPort( opSplit[1] );// port
-		List extElements = port.getExtensibilityElements( );
-		if ( !WSUtil.isNull( extElements ) )
-		{
-			for ( int i = 0; i < extElements.size( ); i++ )
-			{
-				if ( extElements.get( i ) instanceof SOAPAddress )
-				{
-					locationURI = ( (SOAPAddress) extElements.get( i ) ).getLocationURI( );
-					break;
-				}
-				if ( extElements.get( i ) instanceof HTTPAddress )
-				{
-					locationURI = ( (HTTPAddress) extElements.get( i ) ).getLocationURI( );
-					break;
-				}
-			}
-		}
+		if ( port == null )
+			return null;
+		Element address = port.getSOAPElement( "address" ); //$NON-NLS-1$
+		if ( address == null )
+			address = port.getHTTPAddress( );
+		if ( address != null )
+			locationURI = address.getAttribute( "location" ); //$NON-NLS-1$
 
 		return locationURI;
 	}
@@ -191,18 +163,9 @@ public class WSDLAdvisor
 		if ( WSUtil.isNull( bindingOperation ) )
 			return soapActionURI;
 
-		List extElements = bindingOperation.getExtensibilityElements( );
-		if ( !WSUtil.isNull( extElements ) )
-		{
-			for ( int i = 0; i < extElements.size( ); i++ )
-			{
-				if ( extElements.get( i ) instanceof SOAPOperation )
-				{
-					soapActionURI = ( (SOAPOperation) extElements.get( i ) ).getSoapActionURI( );
-					break;
-				}
-			}
-		}
+		Element operation = bindingOperation.getSOAPElement( "operation" ); //$NON-NLS-1$
+		if ( operation != null )
+			soapActionURI = operation.getAttribute( "soapAction" ); //$NON-NLS-1$
 
 		return soapActionURI;
 	}
@@ -253,6 +216,8 @@ public class WSDLAdvisor
 			return null;
 
 		Port port = service.getPort( opSplit[1] );// port
+		if ( port == null )
+			return null;
 		BindingOperation bindingOperation = port.getBinding( )
 				.getBindingOperation( opSplit[2],// operation
 						null,
@@ -280,7 +245,7 @@ public class WSDLAdvisor
 		if ( !checkOperationTrace( operationTrace ) )
 			return template;
 
-		Definition definition = getDefinitionWithoutExcpe( wsdlURI );
+		Definition definition = loadDefinition( wsdlURI );
 		if ( WSUtil.isNull( definition ) )
 			return template;
 		String inOrOutput = "in"; //$NON-NLS-1$
@@ -307,7 +272,7 @@ public class WSDLAdvisor
 		if ( !checkOperationTrace( operationTrace ) )
 			return template;
 
-		Definition definition = getDefinitionWithoutExcpe( wsdlURI );
+		Definition definition = loadDefinition( wsdlURI );
 		if ( WSUtil.isNull( definition ) )
 			return template;
 		String inOrOutput = "out"; //$NON-NLS-1$
@@ -316,6 +281,18 @@ public class WSDLAdvisor
 				+ buildBody( wsdlURI, operationTrace, inOrOutput ) + buildEnd( );
 
 		return template;
+	}
+
+	private static Definition loadDefinition( String wsdlURI ) throws OdaException
+	{
+		try
+		{
+			return getDefinition( wsdlURI );
+		}
+		catch ( IOException e )
+		{
+			throw new OdaException( e );
+		}
 	}
 
 	private static String buildStart( )
@@ -394,18 +371,17 @@ public class WSDLAdvisor
 		if ( WSUtil.isNull( bindingOperation ) )
 			return result;
 
-		BindingInput bindingInput = bindingOperation.getBindingInput( );
-		List extElements = bindingInput.getExtensibilityElements( );
+		Element bindingInput = bindingOperation.getBindingInput( );
+		List<Element> extElements = WSDLModel.children( bindingInput, WSDLModel.SOAP_NS, "header" ); //$NON-NLS-1$
 		if ( !WSUtil.isNull( extElements ) )
 		{
 			for ( int i = 0; i < extElements.size( ); i++ )
 			{
-				if ( extElements.get( i ) instanceof SOAPHeader )
 				{
-					SOAPHeader soapHeader = ( (SOAPHeader) extElements.get( i ) );
-					String nameSpace = soapHeader.getMessage( )
+					Element soapHeader = extElements.get( i );
+					String nameSpace = WSDLModel.qname( soapHeader, "message" ) //$NON-NLS-1$
 							.getNamespaceURI( );
-					String localPart = soapHeader.getPart( );
+					String localPart = soapHeader.getAttribute( "part" ); //$NON-NLS-1$
 					if ( !WSUtil.isNull( localPart ) )
 					{
 
@@ -464,40 +440,14 @@ public class WSDLAdvisor
 	private WSNonLeafNode generateTargetNode( String wsdlURI, String localPart )
 	{
 		Definition definition = getDefinitionWithoutExcpe( wsdlURI );
-		Types types = definition.getTypes( );
-
-		if ( types != null && types.getExtensibilityElements( ) != null )
+		Element[] schemas = definition.getSchemas( );
+		if ( schemas.length > 0 )
 		{
-			List extElements = types.getExtensibilityElements( );
-			List<Element> elementList = new ArrayList<Element>( );
-			for ( int i = 0; i < extElements.size( ); i++ )
-			{
-				if ( extElements.get( i ) instanceof SchemaImpl )
-				{
-					elementList.add( ( (SchemaImpl) extElements.get( i ) ).getElement( ) );
-					for ( Object value : ( (SchemaImpl) extElements.get( i ) ).getImports( )
-							.values( ) )
-					{
-						if ( value instanceof Collection )
-						{
-							for ( Object o : (Collection) value )
-							{
-								if ( o instanceof SchemaImportImpl )
-								{
-									SchemaImportImpl sii = (SchemaImportImpl) o;
-									if ( sii.getReferencedSchema( ) instanceof SchemaImpl )
-										elementList.add( ( (SchemaImpl) sii.getReferencedSchema( ) ).getElement( ) );
-								}
-							}
-						}
-					}
-				}
-			}
 			String[] parentNode = {
 				EMPTY_STRING
 			};
 			WSNonLeafNode node = generateNode( localPart,
-					elementList.toArray( new Element[0] ),
+					schemas,
 					parentNode,
 					null );
 			if ( node.getNodeList( ).size( ) >= 0 )
@@ -660,21 +610,10 @@ public class WSDLAdvisor
 	private String getSimpleTypeBase( String wsdlURI, String typeName )
 	{
 		Definition definition = getDefinitionWithoutExcpe( wsdlURI );
-		Types types = definition.getTypes( );
-
-		if ( types != null && types.getExtensibilityElements( ) != null )
+		Element[] schemas = definition.getSchemas( );
+		if ( schemas.length > 0 )
 		{
-			List extElements = types.getExtensibilityElements( );
-			List<Element> elementList = new ArrayList<Element>( );
-			for ( int i = 0; i < extElements.size( ); i++ )
-			{
-				if ( extElements.get( i ) instanceof SchemaImpl )
-				{
-					elementList.add( ( (SchemaImpl) extElements.get( i ) ).getElement( ) );
-				}
-			}
-			
-			NodeList nodes = getChildNodes( elementList.toArray( new Element[0] ) );
+			NodeList nodes = getChildNodes( schemas );
 			Node XMLNode = findElementNodeByName( nodes, typeName );
 			if ( XMLNode != null )
 			{
@@ -1326,21 +1265,12 @@ public class WSDLAdvisor
 			throw new OdaException( Messages.getString( "port.notexist" ) );
 		}
 		Binding binding = port.getBinding( );
-		List extElements = binding.getExtensibilityElements( );
-
-		if ( !WSUtil.isNull( extElements ) )
-		{
-			for ( int i = 0; i < extElements.size( ); i++ )
-			{
-				if ( extElements.get( i ) instanceof SOAPBinding )
-				{
-					isRPC = !WSUtil.isNull( ( (SOAPBinding) extElements.get( i ) ).getStyle( ) )
-							&& ( (SOAPBinding) extElements.get( i ) ).getStyle( )
-									.equalsIgnoreCase( "rpc" );//$NON-NLS-1$
-					break;
-				}
-			}
-		}
+		Element soapBinding = binding.getSOAPElement( "binding" ); //$NON-NLS-1$
+		Element soapOperation = getBindingOperation( wsdlURI, operationTrace ).getSOAPElement( "operation" ); //$NON-NLS-1$
+		String style = soapOperation != null && soapOperation.hasAttribute( "style" ) //$NON-NLS-1$
+				? soapOperation.getAttribute( "style" ) //$NON-NLS-1$
+				: soapBinding == null ? EMPTY_STRING : soapBinding.getAttribute( "style" ); //$NON-NLS-1$
+		isRPC = "rpc".equalsIgnoreCase( style ); //$NON-NLS-1$
 
 		return isRPC;
 	}
@@ -1425,21 +1355,11 @@ public class WSDLAdvisor
 
 	private static String getNameSpaceRPC( BindingOperation bindingOperation )
 	{
-		BindingInput bindingInput = bindingOperation.getBindingInput( );
-		List extElements = bindingInput.getExtensibilityElements( );
+		Element bindingInput = bindingOperation.getBindingInput( );
 		String nameSpace = EMPTY_STRING;
-
-		if ( !WSUtil.isNull( extElements ) )
-		{
-			for ( int i = 0; i < extElements.size( ); i++ )
-			{
-				if ( extElements.get( i ) instanceof SOAPBody )
-				{
-					nameSpace = ( (SOAPBody) extElements.get( i ) ).getNamespaceURI( );
-					break;
-				}
-			}
-		}
+		Element body = WSDLModel.child( bindingInput, WSDLModel.SOAP_NS, "body" ); //$NON-NLS-1$
+		if ( body != null )
+			nameSpace = body.getAttribute( "namespace" ); //$NON-NLS-1$
 
 		return nameSpace;
 	}
@@ -1577,13 +1497,9 @@ public class WSDLAdvisor
 			List paramNameList, List paramTypeList )
 	{
 		Definition definition = getDefinitionWithoutExcpe( wsdlURI );
-		Types types = definition.getTypes( );
-		List extElements = types.getExtensibilityElements( );
-		for ( int i = 0; i < extElements.size( ); i++ )
+		for ( Element element : definition.getSchemas( ) )
 		{
-			if ( extElements.get( i ) instanceof SchemaImpl )
 			{
-				Element element = ( (SchemaImpl) extElements.get( i ) ).getElement( );
 				List teList = retrieveTargetElementList( element, localPart );
 				for ( int j = 0; j < teList.size( ); j++ )
 				{
@@ -1883,19 +1799,8 @@ public class WSDLAdvisor
 	{
 		String namespace = EMPTY_STRING;
 		Definition definition = getDefinitionWithoutExcpe( wsdlURI );
-		Types types = definition.getTypes( );
-		if( types == null )
-			return namespace;
-		List extElements = types.getExtensibilityElements( );
-		for ( int i = 0; i < extElements.size( ); i++ )
-		{
-			if ( extElements.get( i ) instanceof SchemaImpl )
-			{
-				Element element = ( (SchemaImpl) extElements.get( i ) ).getElement( );
-				namespace = element.getAttribute( "targetNamespace" );//$NON-NLS-1$
-				return namespace;
-			}
-		}
+		for ( Element element : definition.getSchemas( ) )
+			return element.getAttribute( "targetNamespace" ); //$NON-NLS-1$
 
 		return namespace;
 	}
